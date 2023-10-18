@@ -1,0 +1,18 @@
+[global]
+ip_addr = 127.0.0.1
+
+[client]
+ip_addr = 127.0.0.1
+listening_port = 50500
+sending_port = 50501
+
+[broker]
+ip_addr = 127.0.0.1
+listening_port = 50600
+sending_port = 50601
+
+[merchant]
+ip_addr = 127.0.0.1
+listening_port = 50700
+sending_port = 50701
+
