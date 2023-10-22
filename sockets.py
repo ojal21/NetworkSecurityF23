@@ -7,19 +7,16 @@ config = configparser.ConfigParser()
 config.read('config')
 
 argParser = argparse.ArgumentParser()
-argParser.add_argument("-m", "--mode", help="select mode: 'client', 'broker', 'merchant'", required=True)
+argParser.add_argument("-m", "--mode", help="select mode: 'client', 'broker', 'merchant'", choices=['client', 'broker', 'merchant'], required=True)
 argParser.add_argument("-i", "--ip", help="IP address", required=False)
-argParser.add_argument("-lp", "--listening-port", help="Listening port for socket", required=False)
-argParser.add_argument("-sp", "--sending-port", help="Sending port for socket", required=False)
+argParser.add_argument("-p", "--port", help="Port for socket", required=False)
 
 args = argParser.parse_args()
-
 print('args:', args)
 
 mode = args.mode
 ip_addr = args.ip if args.ip else config[mode]['ip_addr']
-listening_port = args.listening_port if args.listening_port else config[mode]['listening_port']
-sending_port = args.sending_port if args.sending_port else config[mode]['sending_port']
+port = args.port if args.port else config[mode]['port']
 
 print(f'---------ATTEMPTING TO RUN AS {mode} -----------')
 
@@ -28,19 +25,26 @@ match mode:
         '''
         ===================BROKER=============
         '''
-        print('IP:', ip_addr, 'Listening Port:', listening_port, 'Sending Port:', sending_port, '\n')
+        print(mode, 'IP:', ip_addr, 'Port:', port, '\n')
+        
+        local_config = config['broker']
+        merchant_addr = local_config['merchant.ip']
+        merchant_port = local_config['merchant.port']
 
-        # listen refers to a socket object
-        listen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listen.bind((ip_addr, int(listening_port)))
-        listen.listen(5)    # 5 connections possible to this port
+        broker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        broker_socket.bind((ip_addr, int(port)))
+        broker_socket.listen(5)    # 5 connections possible to this port
 
-        external_socket, external_address = listen.accept() # external just refers to entity!=mode
-        print(f"Accepted connection from {external_address[0]}:{external_address[1]}")
+        merchant_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        merchant_socket.connect((merchant_addr, int(merchant_port)))
+
+        # for client
+        client_socket, client_address = broker_socket.accept() # external just refers to entity!=mode
+        print(f"Accepted connection from {client_address[0]}:{client_address[1]}")
 
             # receive data from the client
         while True:
-            request_bytes = external_socket.recv(1024)    # TODO: Max length????
+            request_bytes = client_socket.recv(1024)    # TODO: Max length????
             request = request_bytes.decode("utf-8") # convert bytes to string
                 
             # if we receive "close" from the client, then we break
@@ -48,7 +52,7 @@ match mode:
             if request.lower() == "close":
                 # send response to the client which acknowledges that the
                 # connection should be closed and break out of the loop
-                external_socket.send("closed".encode("utf-8"))
+                client_socket.send("closed".encode("utf-8"))
                 break
 
             print(f"Received: {request}")
@@ -57,32 +61,37 @@ match mode:
 
             response = msg.encode("utf-8") # convert string to bytes
             # convert and send accept response to the client
-            external_socket.send(response)
+            client_socket.send(response)
+            merchant_socket.send(response)
 
             # close connection socket with the client
-        external_socket.close()
+        client_socket.close()
         print("Connection to client closed")
+        merchant_socket.close()
+        print("Connection to merchant closed")
             # close server socket
-        listen.close()
+        broker_socket.close()
 
     case 'client':
         '''
         ===================CLIENT=============
         '''
-        print('IP:', ip_addr, 'Listening Port:', listening_port, 'Sending Port:', sending_port, '\n')
-        broker_info = config['broker']
+        print(mode, 'IP:', ip_addr, 'Port:', port, '\n')
+        local_config = config['client']
+        broker_addr = local_config['broker.ip']
+        broker_port = local_config['broker.port']
 
         # connect to broker
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.connect((broker_info['ip_addr'], int(broker_info['listening_port'])))
+        broker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        broker_socket.connect((broker_addr, int(broker_port)))
 
         while True:
             # input message and send it to the server
             msg = input("Enter message: ")
-            client.send(msg.encode("utf-8")[:1024])
+            broker_socket.send(msg.encode("utf-8")[:1024])
 
             # receive message from the server
-            response = client.recv(1024)
+            response = broker_socket.recv(1024)
             response = response.decode("utf-8")
 
             print(f"Received: {response}")
@@ -92,6 +101,46 @@ match mode:
                 break
 
     # close client socket (connection to the server)
-        client.close()
+        broker_socket.close()
         print("Connection to broker closed")
 
+    case 'merchant':
+        '''
+        ===================MERCHANT=============
+        '''
+        print(mode, 'IP:', ip_addr, 'Port:', port, '\n')
+
+        # listen refers to a socket object
+        merchant_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        merchant_socket.bind((ip_addr, int(port)))
+        merchant_socket.listen(5)    # 5 connections possible to this port
+
+        broker_socket, broker_address = merchant_socket.accept() # external just refers to entity!=mode
+        print(f"Accepted broker connection from {broker_address[0]}:{broker_address[1]}")
+
+        # receive data from the broker
+        while True:
+            request_bytes = broker_socket.recv(1024)    # TODO: Max length????
+            request = request_bytes.decode("utf-8") # convert bytes to string
+                
+            # if we receive "close" from the client, then we break
+            # out of the loop and close the conneciton
+            if request.lower() == "close":
+                # send response to the client which acknowledges that the
+                # connection should be closed and break out of the loop
+                broker_socket.send("closed".encode("utf-8"))
+                break
+
+            print(f"Received: {request}")
+            # input message and send it to the server
+            msg = input("Enter message: ")
+
+            response = msg.encode("utf-8") # convert string to bytes
+            # convert and send accept response to the client
+            broker_socket.send(response)
+
+        # close connection socket with the client
+        broker_socket.close()
+        print("Connection to client closed")
+            # close server socket
+        broker_socket.close()

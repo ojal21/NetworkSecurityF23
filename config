@@ -3,16 +3,17 @@ ip_addr = 127.0.0.1
 
 [client]
 ip_addr = 127.0.0.1
-listening_port = 50500
-sending_port = 50501
+port = 50500
+broker.ip = 127.0.0.1
+broker.port = 50600
 
 [broker]
 ip_addr = 127.0.0.1
-listening_port = 50600
-sending_port = 50601
+port = 50600
+merchant.ip = 127.0.0.1
+merchant.port = 50700
 
 [merchant]
 ip_addr = 127.0.0.1
-listening_port = 50700
-sending_port = 50701
+port = 50700
 
