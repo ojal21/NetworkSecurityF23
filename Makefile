@@ -14,3 +14,6 @@ merchant:
 
 version:
 	python3 --version
+
+build:
+	pip install -r requirements.txt
