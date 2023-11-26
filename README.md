@@ -29,6 +29,7 @@ Use `config` file to define default IP and ports for each mode.
 - https://www.datacamp.com/tutorial/a-complete-guide-to-socket-programming-in-python
 - https://docs.python.org/3/howto/sockets.html
 - https://www.markdownguide.org/cheat-sheet/
+- https://realpython.com/intro-to-python-threading/
     
 ### NOTES:
 - It may take sometime for the "server" (i.e. port) to be released. Program may give error saying its not available.
