@@ -1,0 +1,19 @@
+[global]
+ip_addr = 127.0.0.1
+
+[client]
+ip_addr = 127.0.0.1
+port = 50500
+broker.ip = 127.0.0.1
+broker.port = 50600
+
+[broker]
+ip_addr = 127.0.0.1
+port = 50600
+merchant.ip = 127.0.0.1
+merchant.port = 50700
+
+[merchant]
+ip_addr = 127.0.0.1
+port = 50700
+
