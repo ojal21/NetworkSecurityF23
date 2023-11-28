@@ -94,11 +94,11 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
 
     while True:
         request_bytes = broker.recv(1024)    # TODO: Max length????
-        request = request_bytes.decode("utf-8") # convert bytes to string
+        request = request_bytes.decode()
 
         # TODO: only for test
         if request.lower() == "close":
-            broker.send("closed".encode("utf-8"))
+            broker.send("closed".encode())
 
         if request == "":
             break
@@ -107,8 +107,7 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
         # input message and send it to the server
         msg = input("Enter message: ")
 
-        response = msg.encode("utf-8") # convert string to bytes
-        # convert and send accept response to the socket client
+        response = msg.encode()
         broker.send(response)
 
     # close connection socket with the socket client
@@ -147,7 +146,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
 
     while True:
         request_bytes = client.recv(1024)    # TODO: Max length????
-        request = request_bytes.decode("utf-8") # convert bytes to string
+        request = request_bytes.decode()
 
         # if we receive "close" from the client, then we break
         # out of the loop and close the conneciton
@@ -155,7 +154,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         if request.lower() == "close":
             # send response to the client which acknowledges that the
             # connection should be closed and break out of the loop
-            client.send("closed".encode("utf-8"))
+            client.send("closed".encode())
 
         if request == "":
             break
@@ -164,8 +163,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         # input message and send it to the server
         msg = input("Enter message: ")
 
-        response = msg.encode("utf-8") # convert string to bytes
-        # convert and send accept response to the client
+        response = msg.encode()
         client.send(response)
 
     # close connection socket with the client
