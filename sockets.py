@@ -44,7 +44,7 @@ def send_user_auth(config: dict, broker: socket.socket) -> bool:
 
 def verify_username_password(file_path: str, username: str, password: str) -> bool:
     passwords = load_json_file(file_path)
-    return passwords[username] == password
+    return passwords.get(username, None) == password
 
 def process_client_messages(local_config: dict, broker: socket.socket) -> None:
     # Requesting to get product list from merchantA
