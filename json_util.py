@@ -7,7 +7,7 @@ def decode_message(input: bytes) -> tuple[str, str]:
     return msg["operation"], msg["data"]
 
 
-def jsonify(operation: str, data: str) -> bytes:
+def jsonify(operation: str, data: object) -> bytes:
     json_obj = {}
     json_obj["operation"] = operation
     json_obj["data"] = data
