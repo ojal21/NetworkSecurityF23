@@ -1,5 +1,6 @@
 import rsa
 import secrets
+import hashlib
 
 def load_key_from_file(path: str, private: bool) -> rsa.PrivateKey | rsa.PublicKey:
     keyString = b''
@@ -15,3 +16,11 @@ def decrypt(data: bytes, key: rsa.PrivateKey) -> bytes:
 
 def get_nonce() -> bytes:
     return secrets.token_bytes()
+
+def hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+if __name__ == "__main__":
+    # main for testing
+    data = b"Who AM I?"
+    print(hash(data))

@@ -21,15 +21,59 @@ def load_args() -> list:
     print('Args:', args)
     return args
 
+def send_user_auth(config: dict, broker: socket.socket) -> bool:
+    username = input('Enter username: ')
+    password = input('Enter password: ')
+    # TODO: hash the password
+    random = get_nonce()
+
+    broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
+    cust_prv_key = load_key_from_file('client/keys/client1-private', True)
+
+    message = b'::'.join([username.encode(), password.encode(), random])
+    print('Auth message: ', message)
+    message = b'client1' + encrypt(message, broker_pub_key)
+    # TODO: how is the client ID going to be picked up, cmdline args?
+
+    '''
+    client ID is to identify the whitelisted system and its key at broker's end
+    (Alternative: try parsing at broker: all registered client public keys, which ever matches is good)
+
+    Situation: A user can have multiple devices, each having different RSA key pairs. We should be able to communicate with any system the user chooses and eventually authenticate the user by username and password
+    '''
+
+    broker.send(message)
+
+    auth_reply = decrypt(broker.recv(1024), cust_prv_key)
+    random_reply = auth_reply[:32]
+    verify_reply = auth_reply[32:]
+
+    print(f'random_reply: {random_reply} verify_response: {verify_reply}')
+
+    if random == random_reply and verify_reply == b'SUCCESS':
+        print('Random challenge verified; Username and password verified')
+        return True
+    else:
+        if random != random_reply:
+            print(f'Incorrect challenge reply, Expected: {random} but Received: {random_reply}')
+        else:
+            print('Received verification result from broker:', verify_reply)
+        return False
+
+def verify_username_password(username: str, password: str) -> bool:
+    passwords = load_json_file('broker/passwords.json')
+    # TODO: hash the password!
+    return passwords[username] == password
+
 def process_client_messages(local_config: dict, broker: socket.socket) -> None:
     while True:
         # input message and send it to the server
         msg = input("Enter message: ")
-        broker_socket.send(msg.encode("utf-8")[:1024])
+        broker_socket.send(msg.encode()[:1024])
 
         # receive message from the server
         response = broker_socket.recv(1024)
-        response = response.decode("utf-8")
+        response = response.decode()
 
         print(f"Received: {response}")
 
@@ -92,6 +136,34 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
 
 def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
     print(f"Accepted CLIENT connection from {client_addr}")
+
+    # auth handling
+    broker_prv_key = load_key_from_file('broker/keys/broker-private', True)
+    cust_pub_key = load_key_from_file('client/keys/client1-public', False)
+    auth_bytes = client.recv(1024)
+    id = auth_bytes[:7]
+    auth_msg = decrypt(auth_bytes[7:], broker_prv_key)
+
+    auth_details = auth_msg.split(b'::')
+    username = auth_details[0].decode()
+    password = auth_details[1].decode()
+    challenge = auth_details[2] if len(auth_details) == 3 else b''.join(auth_details[3:])
+    print(f'id: {id}, username: {username}, password: {password}, challenge: {challenge}')
+
+    verified = verify_username_password(username, password)
+    if verified:
+        print('Verified username and password')
+        reply = challenge + b'SUCCESS'
+        client.send(encrypt(reply, cust_pub_key))
+    else:
+        print('Did not find a matching username and password')
+        reply = challenge + b'FAILED'
+        client.send(encrypt(reply, cust_pub_key))
+        # close connection socket with the client
+        client.close()
+        print(f"Connection to CLIENT {client_addr} closed")
+        return  #end processing this thread
+
     while True:
         request_bytes = client.recv(1024)    # TODO: Max length????
         request = request_bytes.decode("utf-8") # convert bytes to string
@@ -207,7 +279,11 @@ if __name__ == '__main__':
                 broker_socket.connect((broker_addr, int(broker_port)))
                 print(f"Connected to broker at {broker_addr}:{broker_port}")
 
-                process_client_messages(config['client'], broker_socket)
+                success = send_user_auth(local_config, broker_socket)
+                if success:
+                    process_client_messages(local_config, broker_socket)
+                else:
+                    print("ERROR: Incorrect username or password")
 
             case 'merchant':
                 '''

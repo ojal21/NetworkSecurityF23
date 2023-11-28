@@ -18,6 +18,16 @@ def print_json(json_obj: dict | list) -> None:
     print(json.dumps(json_obj, sort_keys=True, indent=4))
 
 
+def load_json_file(path: str) -> dict:
+    with open(path, "r") as file:
+        return json.load(file)
+
+
+def write_json_file(json_obj: dict | list, path) -> None:
+    with open(path, "w") as file:
+        json.dump(json_obj, file, indent=4)
+
+
 # main for testing functions
 if __name__ == "__main__":
     print("====TEST 1====")
@@ -37,3 +47,6 @@ if __name__ == "__main__":
         json.loads('{"operation":"sessionKey","data":{"p":12345678,"q":90909090}}')
     )
     print_json(json.loads('["file1", "file2", "file3", [1,2,3,4,5   ]]'))
+
+    print("====TEST 4====")
+    print_json(load_json_file("broker/passwords.json"))
