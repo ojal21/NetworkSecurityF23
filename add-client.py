@@ -24,8 +24,8 @@ print("HASH: ", pwd_hash)
 
 public_key_c1, private_key_c1=rsa.newkeys(1024)
 
-with open(f"{key_path}/{username}_public.pen","wb") as f:
+with open(f"{key_path}/{username}-public","wb") as f:
     f.write(public_key_c1.save_pkcs1("PEM"))
 
-with open(f"{key_path}/{username}_private.pen","wb") as f:
+with open(f"{key_path}/{username}-private","wb") as f:
     f.write(private_key_c1.save_pkcs1("PEM"))
