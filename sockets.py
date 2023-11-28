@@ -1,36 +1,18 @@
-import argparse
 import socket
-import configparser
 from threading import Thread
 from crypto_custom import *
 from json_util import *
-
-def load_config() -> configparser.ConfigParser:
-    # config and setup related
-    config = configparser.ConfigParser()
-    config.read('config')   # filename: 'config'
-    return config
-
-def load_args() -> list:
-    argParser = argparse.ArgumentParser()
-    argParser.add_argument("-m", "--mode", help="select mode: 'client', 'broker', 'merchant'", choices=['client', 'broker', 'merchant'], required=True)
-    argParser.add_argument("-i", "--ip", help="IP address", required=False)
-    argParser.add_argument("-p", "--port", help="Port for socket", required=False)
-
-    args = argParser.parse_args()
-    print('Args:', args)
-    return args
+import run_util
 
 def send_user_auth(config: dict, broker: socket.socket) -> bool:
     username = input('Enter username: ')
     password = input('Enter password: ')
-    # TODO: hash the password
     random = get_nonce()
 
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
     cust_prv_key = load_key_from_file('client/keys/client1-private', True)
 
-    message = b'::'.join([username.encode(), password.encode(), random])
+    message = b'::'.join([username.encode(), hash(password.encode()).encode(), random])
     print('Auth message: ', message)
     message = b'client1' + encrypt(message, broker_pub_key)
     # TODO: how is the client ID going to be picked up, cmdline args?
@@ -62,7 +44,6 @@ def send_user_auth(config: dict, broker: socket.socket) -> bool:
 
 def verify_username_password(username: str, password: str) -> bool:
     passwords = load_json_file('broker/passwords.json')
-    # TODO: hash the password!
     return passwords[username] == password
 
 def process_client_messages(local_config: dict, broker: socket.socket) -> None:
@@ -82,11 +63,11 @@ def process_client_messages(local_config: dict, broker: socket.socket) -> None:
             break
 
     # close client socket (connection to the server)
-    broker_socket.close()
+    broker.close()
     print("Connection to broker closed")
 
 def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr:tuple) -> None:
-    print(f"Accepted broker connection from {broker_addr}")
+    print(f"\nAccepted broker connection from {broker_addr}")
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
     merchant_private_key = load_key_from_file('merchant/keys/merchant-private', True)
     random_value = get_nonce()
@@ -135,7 +116,7 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     print(f"Connection to BROKER {broker_addr} closed")
 
 def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
-    print(f"Accepted CLIENT connection from {client_addr}")
+    print(f"\nAccepted CLIENT connection from {client_addr}")
 
     # auth handling
     broker_prv_key = load_key_from_file('broker/keys/broker-private', True)
@@ -223,8 +204,8 @@ def authenticate_merchant(merchant: socket.socket) -> None:
 
 if __name__ == '__main__':
     try:
-        config = load_config()
-        args = load_args()
+        config = run_util.load_config()
+        args = run_util.load_args()
 
         mode = args.mode
         ip_addr = args.ip if args.ip else config[mode]['ip_addr']
