@@ -1,0 +1,3 @@
+This is content of product2.txt
+TBD fill up!
+2222

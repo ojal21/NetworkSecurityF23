@@ -1,0 +1,2 @@
+This is content of product1.txt
+TBD fill up!
