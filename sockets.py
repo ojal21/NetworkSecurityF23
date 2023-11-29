@@ -2,6 +2,7 @@ import socket
 from threading import Thread
 from crypto_custom import *
 from json_util import *
+from session_key_generation import *
 import run_util
 
 def send_user_auth(config: dict, broker: socket.socket) -> bool:
@@ -10,7 +11,7 @@ def send_user_auth(config: dict, broker: socket.socket) -> bool:
     random = get_nonce()
 
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
-    cust_prv_key = load_key_from_file('client/keys/client1-private', True)
+    cust_prv_key = load_key_from_file(f'client/keys/{username}-private', True)
 
     message = b'::'.join([username.encode(), hash(password.encode()).encode(), random])
     print('Auth message: ', message)
@@ -119,7 +120,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
 
     # auth handling
     broker_prv_key = load_key_from_file('broker/keys/broker-private', True)
-    cust_pub_key = load_key_from_file('client/keys/client1-public', False)
+    
     auth_bytes = client.recv(1024)
     id = auth_bytes[:7]
     auth_msg = decrypt(auth_bytes[7:], broker_prv_key)
@@ -127,6 +128,8 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     auth_details = auth_msg.split(b'::')
     username = auth_details[0].decode()
     password = auth_details[1].decode()
+    cust_pub_key = load_key_from_file(f'client/keys/{username}-public', False)
+  
     challenge = auth_details[2] if len(auth_details) == 3 else b''.join(auth_details[3:])
     print(f'id: {id}, username: {username}, password: {password}, challenge: {challenge}')
 
@@ -198,7 +201,9 @@ def authenticate_merchant(merchant: socket.socket) -> None:
     else:
         print('AUTH FAILED')
 
-
+# def session_key(client: socket.socket,broker: socket.socket,merchant: socket.socket):
+#     while True:
+#         msg=
 
 if __name__ == '__main__':
     try:
