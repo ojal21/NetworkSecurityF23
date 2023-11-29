@@ -1,6 +1,7 @@
 import socket
 from threading import Thread
 from crypto_custom import *
+from file_utils import *
 from json_util import *
 import run_util
 
@@ -62,7 +63,7 @@ def process_client_messages(local_config: dict, broker: socket.socket) -> None:
     for i in range(total_products):
         print(f'{i+1:<2} {products[i]}')    # TODO: need to split product neatly to name, price, description?
 
-    choice = int(input('Enter choice:'))    # ERROR handling for non number
+    choice = int(input('\nEnter choice:'))    # ERROR handling for non number
     if choice <= 0 or choice > total_products:
         print('Invalid choice')     # ERROR handling
         # TODO: exit?
@@ -155,12 +156,22 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
 
 def handle_msg_merchant(operation: str, data: object) -> bytes:
     print('====>Received request for operation:', operation)
+    response = None
     match operation:
         case "getProductList":
-            # nothing to process on data
-            # TODO: read files for required product data
-            print('<====Sending response for operation:', operation)
-            return ["productTest1", "productTest2", "productTest3", "productTest4"]
+            path = "merchant/products"
+            products = getFilesInDirectory(path)
+            print('Current product list:', products)
+            response = products
+        case "checkoutProduct":
+            product = data["product"]
+            path = "merchant/products/" + product
+            response = getFileContents(path)
+    if not response:
+        print('WARNING: Sending empty response')
+    print('<====Sending response for operation:', operation)
+    return response
+
 
 
 def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
@@ -207,6 +218,20 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     # send list to client
     print('<===Sending product list to client')
     client.send(jsonify(op1, productList))
+
+    # productCheckout
+    op1, checkoutReq = decode_message(client.recv(1024))
+    # TODO how to know which merchant it wants to connect to?
+    print('===>Contacting:', merchantId)
+
+    # get from merchant
+    merchant.send(jsonify(op1, checkoutReq))
+    op2, checkoutResp = decode_message(merchant.recv(1024))
+    assert op2 == op1
+
+    # send list to client
+    print('<===Sending checkout response to client')
+    client.send(jsonify(op1, checkoutResp))
 
     while True:
         request_bytes = client.recv(1024)    # TODO: Max length????
