@@ -146,8 +146,17 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         client.close()
         print(f"Connection to CLIENT {client_addr} closed")
         return  #end processing this thread
-
+#broker DH
+        
+    val= client.recv(1024).decode() 
+    print("vallll",val)
+    p,g,A=val.split()
+    B=generate_server_DH(int(p),int(g))
+    print("p,g,A",p,g,A,B)
+    client.send(f"{B}".encode())
+    
     while True:
+        
         request_bytes = client.recv(1024)    # TODO: Max length????
         request = request_bytes.decode()
 
@@ -197,13 +206,9 @@ def authenticate_merchant(merchant: socket.socket) -> None:
     auth_reply = merchant.recv(10)
 
     if auth_reply == b'OK':
-        print('AUTH SUCCESS')
+        print('AUTH SUCCESS')       
     else:
         print('AUTH FAILED')
-
-# def session_key(client: socket.socket,broker: socket.socket,merchant: socket.socket):
-#     while True:
-#         msg=
 
 if __name__ == '__main__':
     try:
@@ -265,6 +270,8 @@ if __name__ == '__main__':
 
                 success = send_user_auth(local_config, broker_socket)
                 if success:
+                    #dh
+                    generate_client_DH(broker_socket)
                     process_client_messages(local_config, broker_socket)
                 else:
                     print("ERROR: Incorrect username or password")
