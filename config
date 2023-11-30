@@ -12,6 +12,7 @@ ip_addr = 127.0.0.1
 port = 50600
 merchant.ip = 127.0.0.1
 merchant.port = 50700
+passwords_file = broker/passwords.json
 
 [merchant]
 ip_addr = 127.0.0.1

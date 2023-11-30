@@ -1,6 +1,7 @@
 import socket
 from threading import Thread
 from crypto_custom import *
+from file_utils import *
 from json_util import *
 from session_key_generation import *
 import run_util
@@ -43,11 +44,53 @@ def send_user_auth(config: dict, broker: socket.socket) -> bool:
             print('Received verification result from broker:', verify_reply)
         return False
 
-def verify_username_password(username: str, password: str) -> bool:
-    passwords = load_json_file('broker/passwords.json')
-    return passwords[username] == password
+def verify_username_password(file_path: str, username: str, password: str) -> bool:
+    passwords = load_json_file(file_path)
+    return passwords.get(username, None) == password
 
 def process_client_messages(local_config: dict, broker: socket.socket) -> None:
+    # Requesting to get product list from merchantA
+    msg = jsonify("getProductList", {"merchantId": "merchantA"})
+    print('===>Requesting products from merchantA', msg)
+    broker.send(msg)
+
+    # Receive product list
+    op, products = decode_message(broker.recv(1024))
+    assert op == "getProductList"   # expected message?
+    print("<===Received products:", products)
+
+    total_products = len(products)
+    print("\nPlease select product to purchase: ")
+    for i in range(total_products):
+        print(f'{i+1:<2} {products[i]}')    # TODO: need to split product neatly to name, price, description?
+
+    choice = int(input('\nEnter choice:'))    # ERROR handling for non number
+    if choice <= 0 or choice > total_products:
+        print('Invalid choice')     # ERROR handling
+        # TODO: exit?
+
+    selected_product = products[choice-1]   # -1 for indexing
+    print('You have chosen product:', selected_product)
+    print('Please wait------------')
+
+    # checkout selected product
+    msg = jsonify("checkoutProduct", {"product": selected_product, "quantity": 1})
+    print('===>Sending product checkout', msg)
+    broker.send(msg)
+
+    # Receive purchase info for product checked out
+    op, checkout_info = decode_message(broker.recv(1024))
+    assert op == "checkoutProduct"   # expected message?
+    print("<===Received checkout_info:", checkout_info)
+
+    '''
+    checkout_info will contain:
+    1. Unique Txn ID?
+    2. Product Info?   (required again?)
+    3. Purchase amount for product
+    x. do we need to double check selected product? usually client generates a txn ID so that itself verifies the product
+    '''
+
     while True:
         # input message and send it to the server
         msg = input("Enter message: ")
@@ -69,6 +112,8 @@ def process_client_messages(local_config: dict, broker: socket.socket) -> None:
 
 def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr:tuple) -> None:
     print(f"\nAccepted broker connection from {broker_addr}")
+
+    # AUTH
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
     merchant_private_key = load_key_from_file('merchant/keys/merchant-private', True)
     random_value = get_nonce()
@@ -94,26 +139,41 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
         broker.send(b'NO')
 
     while True:
-        request_bytes = broker.recv(1024)    # TODO: Max length????
-        request = request_bytes.decode()
-
-        # TODO: only for test
-        if request.lower() == "close":
-            broker.send("closed".encode())
-
-        if request == "":
+        request = broker.recv(1024)
+        # TODO check if we still need "close" and "closed" pairs
+        if request == b"close":
+            broker.send(b"closed")
+        if request == b"":
             break
 
-        print(f"Received: {request}")
-        # input message and send it to the server
-        msg = input("Enter message: ")
+        op, data = decode_message(request)
+        response = handle_msg_merchant(op, data)
 
-        response = msg.encode()
-        broker.send(response)
+        broker.send(jsonify(op, response))
 
     # close connection socket with the socket client
     broker.close()
     print(f"Connection to BROKER {broker_addr} closed")
+
+def handle_msg_merchant(operation: str, data: object) -> bytes:
+    print('====>Received request for operation:', operation)
+    response = None
+    match operation:
+        case "getProductList":
+            path = "merchant/products"
+            products = getFilesInDirectory(path)
+            print('Current product list:', products)
+            response = products
+        case "checkoutProduct":
+            product = data["product"]
+            path = "merchant/products/" + product
+            response = getFileContents(path)
+    if not response:
+        print('WARNING: Sending empty response')
+    print('<====Sending response for operation:', operation)
+    return response
+
+
 
 def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
     print(f"\nAccepted CLIENT connection from {client_addr}")
@@ -133,7 +193,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     challenge = auth_details[2] if len(auth_details) == 3 else b''.join(auth_details[3:])
     print(f'id: {id}, username: {username}, password: {password}, challenge: {challenge}')
 
-    verified = verify_username_password(username, password)
+    verified = verify_username_password(local_config["passwords_file"], username, password)
     if verified:
         print('Verified username and password')
         reply = challenge + b'SUCCESS'
@@ -155,6 +215,35 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     print("p,g,A",p,g,A,B)
     client.send(f"{B}".encode())
     
+    # getProductList
+    op1, productListReq = decode_message(client.recv(1024))
+    # identify merchant:
+    merchantId = productListReq["merchantId"]
+    print('===>Contacting:', merchantId)
+
+    # get from merchant
+    merchant.send(jsonify("getProductList", ""))
+    op2, productList = decode_message(merchant.recv(1024))
+    assert op2 == "getProductList"
+
+    # send list to client
+    print('<===Sending product list to client')
+    client.send(jsonify(op1, productList))
+
+    # productCheckout
+    op1, checkoutReq = decode_message(client.recv(1024))
+    # TODO how to know which merchant it wants to connect to?
+    print('===>Contacting:', merchantId)
+
+    # get from merchant
+    merchant.send(jsonify(op1, checkoutReq))
+    op2, checkoutResp = decode_message(merchant.recv(1024))
+    assert op2 == op1
+
+    # send list to client
+    print('<===Sending checkout response to client')
+    client.send(jsonify(op1, checkoutResp))
+
     while True:
         
         request_bytes = client.recv(1024)    # TODO: Max length????
@@ -182,7 +271,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     client.close()
     print(f"Connection to CLIENT {client_addr} closed")
 
-def authenticate_merchant(merchant: socket.socket) -> None:
+def authenticate_merchant(config: dict, merchant: socket.socket) -> None:
     broker_prv_key = load_key_from_file('broker/keys/broker-private', True)
     merch_pub_key = load_key_from_file('merchant/keys/merchant-public', False)
     random_value = get_nonce()
@@ -240,7 +329,7 @@ if __name__ == '__main__':
                 merchant_socket.connect((merchant_addr, int(merchant_port)))
                 print(f"Connected to merchant at: {merchant_addr}:{merchant_port}")
 
-                authenticate_merchant(merchant_socket)
+                authenticate_merchant(local_config, merchant_socket)
 
                 broker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 broker_socket.bind((ip_addr, int(port)))
