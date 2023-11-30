@@ -6,7 +6,7 @@
 ### RUN AS CLIENT:  
 `make client` OR `python sockets.py --mode client`  
   
-### RUN AS MERCHANT:  (Pending)  
+### RUN AS MERCHANT:  
 `make merchant` OR `python sockets.py --mode merchant`  
   
 ### Configuring defaults:  
