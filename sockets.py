@@ -53,7 +53,7 @@ def process_client_messages(local_config: dict, broker: socket.socket) -> None:
     msg = jsonify("getProductList", {"merchantId": "merchantA"})
     print('===>Requesting products from merchantA', msg)
     broker.send(msg)
-
+    #merchant - client => 
     # Receive product list
     op, products = decode_message(broker.recv(1024))
     assert op == "getProductList"   # expected message?
@@ -133,11 +133,21 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
 
     if auth_final_msg == random_value:
         print(f'AUTH SUCCESS for broker: {broker_addr} as ID: {id}')
-        broker.send(b'OK')
+        broker.send(b'OK')     
     else:
         print(f'AUTH FAILED for broker: {broker_addr}')
         broker.send(b'NO')
 
+    #MERCHANT- BROKER SESSION KEY        
+    val= broker.recv(1024).decode() 
+    print("vallll",val)
+    p,g,A=val.split()
+    val2=generate_server_DH(int(p),int(g),int(A))#B & k 
+    session_key2,B=val2.split()
+    #1 more msg to client B 
+    broker.send(B.encode())
+    print("sessionkkk---2---- server----",session_key2)
+    
     while True:
         request = broker.recv(1024)
         # TODO check if we still need "close" and "closed" pairs
@@ -167,7 +177,7 @@ def handle_msg_merchant(operation: str, data: object) -> bytes:
         case "checkoutProduct":
             product = data["product"]
             path = "merchant/products/" + product
-            response = getFileContents(path)
+            response = getFileContents(path) 
     if not response:
         print('WARNING: Sending empty response')
     print('<====Sending response for operation:', operation)
@@ -206,15 +216,18 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         client.close()
         print(f"Connection to CLIENT {client_addr} closed")
         return  #end processing this thread
-#broker DH
-        
+
+    #CLIENT- BROKER SESSION KEY        
     val= client.recv(1024).decode() 
     print("vallll",val)
     p,g,A=val.split()
-    B=generate_server_DH(int(p),int(g))
-    print("p,g,A",p,g,A,B)
-    client.send(f"{B}".encode())
+    val2=generate_server_DH(int(p),int(g),int(A))#B & k 
+    session_key1,B=val2.split()
+    #1 more msg to client B 
+    client.send(B.encode())
     
+    print("sessionkkk---- server----",session_key1)
+       
     # getProductList
     op1, productListReq = decode_message(client.recv(1024))
     # identify merchant:
@@ -298,6 +311,9 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> None:
         print('AUTH SUCCESS')       
     else:
         print('AUTH FAILED')
+    
+    #call generate broker 
+    generate_client_DH(merchant)
 
 if __name__ == '__main__':
     try:
@@ -360,7 +376,8 @@ if __name__ == '__main__':
                 success = send_user_auth(local_config, broker_socket)
                 if success:
                     #dh
-                    generate_client_DH(broker_socket)
+                    generate_client_DH(broker_socket)#return as session - client end
+                    
                     process_client_messages(local_config, broker_socket)
                 else:
                     print("ERROR: Incorrect username or password")

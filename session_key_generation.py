@@ -50,35 +50,34 @@ def primRoots(modulo):
     idx=random.randint(0,len(roots))      
     return roots[idx]
 
-def generate_client_DH(server:socket.socket()):
+def generate_client_DH(server:socket.socket): #hold them as return values
     x=random.randint(1, 1024)
     p=generate_prime()
     g=primRoots(p)
     A=pow(g,x)%p
-
-    
-    # print(p,x,g,A)
-    
+ 
     msg=""
     msg+=(str(p)+" ")
     msg+=(str(g)+" ")
     msg+=(str(A))
-    # print("mmsssggg",msg)
-    server.send(msg.encode()[:1024])
-    B=(server.recv(1024).decode())
     
-    sessionk=pow(int(B),x)%p
-    # print(sessionk)
-    with open(f"session_key/s{len(visited)}_DH_key","w") as f:
-        f.write(str(sessionk))
-        f.write("\n")       
-    ("visited---",visited)
-def generate_server_DH(p,g):
-   y=random.randint(1, 1024)
-   B=pow(g,y)%p
-#    print("server-----",B)
-   return B
+    server.send(msg.encode()[:1024])
+    B=(server.recv(1024).decode()) 
+    
+    sessionk=hex(pow(int(B),x)%p)
+    print("client session k 1---",sessionk)
+
+def generate_server_DH(p,g,A):
+    #g, p, A
+    y=random.randint(1, 1024)
+    sessionk=pow(int(A),y)%p
+    
+    B=pow(g,y)%p  
+    hex_k=hex(sessionk)
+    response=(str(hex_k)+" "+str(B))
+    return response
    
+#convert session k into hexadecimal 
     
 # generate_client_DH(None)
 
