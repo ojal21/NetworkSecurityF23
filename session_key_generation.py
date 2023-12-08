@@ -1,6 +1,7 @@
 import random
 from math import gcd
 import socket
+from crypto_custom import *
 
 #secure prime
 visited=[]
@@ -22,22 +23,15 @@ def generate_prime():
     while isPrime(num)!=True and num not in visited:
         num=random.randint(1,2048)
     visited.append(num)
-    print(visited)
+    # print(visited)
     return num
 
 def generate_privitive_root(num):
-    # for g in range(2, num):
-    #     if g ** (num - 1) % num == 1:
-    #         return g
+    
     result=1
     for i in range(2, num):
         if (gcd(i, num) == 1):
             print(i)
- 
-# def gcd(a,b):
-#     while b != 0:
-#         a, b = b, a % b
-#     return a
 
 def primRoots(modulo):
     roots = []
@@ -47,10 +41,11 @@ def primRoots(modulo):
         actual_set = set(pow(g, powers) % modulo for powers in range (1, modulo))
         if required_set == actual_set:
             roots.append(g)     
-    idx=random.randint(0,len(roots))      
+    idx=random.randint(0,len(roots)-1)      
     return roots[idx]
-
-def generate_client_DH(server:socket.socket): #hold them as return values
+#if else check for rsa 
+#pass only when needed for merchant case
+def generate_client_DH(server:socket.socket,rsa_pubk, rsa_priv_k): #hold them as return values
     x=random.randint(1, 1024)
     p=generate_prime()
     g=primRoots(p)
@@ -61,20 +56,34 @@ def generate_client_DH(server:socket.socket): #hold them as return values
     msg+=(str(g)+" ")
     msg+=(str(A))
     
-    server.send(msg.encode()[:1024])
-    B=(server.recv(1024).decode()) 
+    server.send(encrypt(msg.encode(),rsa_pubk))
     
-    sessionk=hex(pow(int(B),x)%p)
-    print("client session k 1---",sessionk)
+    # if rsa_priv_k==None:
+    #     B=server.recv(1024).decode()    
+    #     print("case3333----",B)
+    # else:
+    B=decrypt(server.recv(1024),rsa_priv_k).decode()
+    # B=decrypt(server.recv(1024),rsa_priv_k)
+    print("--B---",B)
+    # # # sessionk="{0:016b}".format((pow(int(B),x)%p))
+    sessionk=hash((pow(int(B),x)%p).to_bytes(32,'big'))
+    # # print("client session_gen_client---",sessionk)
+    return sessionk
 
-def generate_server_DH(p,g,A):
-    #g, p, A
-    y=random.randint(1, 1024)
-    sessionk=pow(int(A),y)%p
+def generate_server_DH(val,rsa_pubk,rsa_privk):
+    #g, p, A decrypt
+    val=decrypt(val,rsa_privk)
+    val=val.decode()
+    p,g,A=val.split()
     
-    B=pow(g,y)%p  
-    hex_k=hex(sessionk)
-    response=(str(hex_k)+" "+str(B))
+        
+    y=random.randint(1, 1024)
+    sessionk=hash((pow(int(A),y)%int(p)).to_bytes(32,'big'))
+    
+    B=(pow(int(g),y)%int(p))
+    # ="{0:016b}".format(sessionk)
+    
+    response=(str(sessionk)+" "+str(B))
     return response
    
 #convert session k into hexadecimal 

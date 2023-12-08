@@ -1,6 +1,8 @@
 import rsa
 import secrets
 import hashlib
+from cryptography.fernet import Fernet
+import base64
 
 def load_key_from_file(path: str, private: bool) -> rsa.PrivateKey | rsa.PublicKey:
     keyString = b''
@@ -19,6 +21,20 @@ def get_nonce() -> bytes:
 
 def hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+def session_encrypt(key: bytes,message):
+    key=base64.urlsafe_b64encode(key)
+    msg_encrypt=Fernet(key)
+    
+    return msg_encrypt.encrypt(message)
+    
+def session_encrypt(key: bytes,message):
+    key=base64.urlsafe_b64encode(key)
+    msg_decrypt=Fernet(key)
+    
+    return msg_decrypt.decrypt(message)
+    
+
 
 if __name__ == "__main__":
     # main for testing

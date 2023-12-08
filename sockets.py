@@ -6,9 +6,9 @@ from json_util import *
 from session_key_generation import *
 import run_util
 
-def send_user_auth(config: dict, broker: socket.socket) -> bool:
-    username = input('Enter username: ')
-    password = input('Enter password: ')
+def send_user_auth(config: dict, broker: socket.socket,username,password) -> bool:
+    # username = input('Enter username: ')
+    # password = input('Enter password: ')
     random = get_nonce()
 
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
@@ -48,12 +48,12 @@ def verify_username_password(file_path: str, username: str, password: str) -> bo
     passwords = load_json_file(file_path)
     return passwords.get(username, None) == password
 
-def process_client_messages(local_config: dict, broker: socket.socket) -> None:
+def process_client_messages(local_config: dict, broker: socket.socket,session_key_1_client) -> None:
+    
     # Requesting to get product list from merchantA
     msg = jsonify("getProductList", {"merchantId": "merchantA"})
     print('===>Requesting products from merchantA', msg)
     broker.send(msg)
-    #merchant - client => 
     # Receive product list
     op, products = decode_message(broker.recv(1024))
     assert op == "getProductList"   # expected message?
@@ -139,14 +139,26 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
         broker.send(b'NO')
 
     #MERCHANT- BROKER SESSION KEY        
-    val= broker.recv(1024).decode() 
-    print("vallll",val)
-    p,g,A=val.split()
-    val2=generate_server_DH(int(p),int(g),int(A))#B & k 
+    val= broker.recv(1024)
+    
+    val2=generate_server_DH(val,broker_pub_key,merchant_private_key)#B & k 
+    print("vallll",val2)
     session_key2,B=val2.split()
-    #1 more msg to client B 
-    broker.send(B.encode())
+    
+    # #1 more msg to client B 
+    broker.send(encrypt(B.encode(),broker_pub_key))
     print("sessionkkk---2---- server----",session_key2)
+    
+    #MERCHANT - CLIENT
+    # print("merchant key recv--1--",broker.recv(1024).decode())
+    vals=broker.recv(1024)
+    valm=generate_server_DH(vals,None,merchant_private_key)
+    # print("vait()
+    print("sessionkkaalllmmmm-------",valm)
+    session_key3,Bm=valm.split()
+    print("k--3--- server----",session_key3)
+    broker.send(encrypt(Bm.encode(),merchant_private_key))
+    
     
     while True:
         request = broker.recv(1024)
@@ -185,12 +197,11 @@ def handle_msg_merchant(operation: str, data: object) -> bytes:
 
 
 
-def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
+def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None: 
     print(f"\nAccepted CLIENT connection from {client_addr}")
 
     # auth handling
     broker_prv_key = load_key_from_file('broker/keys/broker-private', True)
-    
     auth_bytes = client.recv(1024)
     id = auth_bytes[:7]
     auth_msg = decrypt(auth_bytes[7:], broker_prv_key)
@@ -218,16 +229,22 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         return  #end processing this thread
 
     #CLIENT- BROKER SESSION KEY        
-    val= client.recv(1024).decode() 
+    val=client.recv(1024)
     print("vallll",val)
-    p,g,A=val.split()
-    val2=generate_server_DH(int(p),int(g),int(A))#B & k 
-    session_key1,B=val2.split()
-    #1 more msg to client B 
-    client.send(B.encode())
+    val2=generate_server_DH(val,cust_pub_key,broker_prv_key)#B & k 
     
-    print("sessionkkk---- server----",session_key1)
-       
+    session_key1,B=val2.split()
+    # #1 more msg to client B 
+    client.send(encrypt(B.encode(),cust_pub_key))
+    
+    print("sessionkkk--1-- server----",session_key1)
+    
+    #CLIENT - MERCHANT SESSION KEY 
+    merchant.send(client.recv(1024))
+    m=merchant.recv(1024)
+    client.send(m)
+
+   
     # getProductList
     op1, productListReq = decode_message(client.recv(1024))
     # identify merchant:
@@ -312,8 +329,8 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> None:
     else:
         print('AUTH FAILED')
     
-    #call generate broker 
-    generate_client_DH(merchant)
+    #call generate broker-w broker -swich merchant 
+    return generate_client_DH(merchant,merch_pub_key,broker_prv_key)
 
 if __name__ == '__main__':
     try:
@@ -345,8 +362,8 @@ if __name__ == '__main__':
                 merchant_socket.connect((merchant_addr, int(merchant_port)))
                 print(f"Connected to merchant at: {merchant_addr}:{merchant_port}")
 
-                authenticate_merchant(local_config, merchant_socket)
-
+                session_k_2=authenticate_merchant(local_config, merchant_socket)
+                print("session--2---",session_k_2)
                 broker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 broker_socket.bind((ip_addr, int(port)))
                 broker_socket.listen(5)    # 5 connections possible to this port
@@ -373,12 +390,23 @@ if __name__ == '__main__':
                 broker_socket.connect((broker_addr, int(broker_port)))
                 print(f"Connected to broker at {broker_addr}:{broker_port}")
 
-                success = send_user_auth(local_config, broker_socket)
+                username = input('Enter username: ')
+                password = input('Enter password: ')
+                success = send_user_auth(local_config, broker_socket,username,password)
                 if success:
                     #dh
-                    generate_client_DH(broker_socket)#return as session - client end
+                    broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
+                    cust_prv_key = load_key_from_file(f'client/keys/{username}-private', True)
+                    merch_pub_key = load_key_from_file('merchant/keys/merchant-public', False)     
                     
-                    process_client_messages(local_config, broker_socket)
+                    session_key_1_client=generate_client_DH(broker_socket,broker_pub_key,cust_prv_key)#return as session - client end
+                    
+                    if session_key_1_client:
+                    #merchant - client => 
+                        session_3_key=generate_client_DH(broker_socket,merch_pub_key,cust_prv_key)  
+    
+                    #pass key to process
+                    process_client_messages(local_config, broker_socket,session_key_1_client)
                 else:
                     print("ERROR: Incorrect username or password")
 
