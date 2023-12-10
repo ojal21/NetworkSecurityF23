@@ -10,8 +10,11 @@ broker.port = 50600
 [broker]
 ip_addr = 127.0.0.1
 port = 50600
+account = 9999
+share = 10
 merchant.ip = 127.0.0.1
 merchant.port = 50700
+merchant.account = 8888
 passwords_file = broker/passwords.json
 
 [merchant]

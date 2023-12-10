@@ -3,6 +3,7 @@ from math import gcd
 import socket
 from cryptography.fernet import Fernet
 from crypto_custom import *
+import base64
 
 #secure prime
 visited=[]

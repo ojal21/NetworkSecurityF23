@@ -34,7 +34,7 @@ def load_json_file(path: str) -> dict:
         return json.load(file)
 
 
-def write_json_file(json_obj: dict | list, path) -> None:
+def write_json_file(json_obj: dict | list, path: str) -> None:
     with open(path, "w") as file:
         json.dump(json_obj, file, indent=4)
 
