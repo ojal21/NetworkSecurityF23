@@ -6,7 +6,7 @@ from json_util import *
 from session_key_generation import *
 import run_util
 
-def send_user_auth(config: dict, broker: socket.socket,username,password) -> bool:
+def send_user_auth(config: dict, broker: socket.socket, username, password) -> bool:
     # username = input('Enter username: ')
     # password = input('Enter password: ')
     random = get_nonce()
@@ -48,7 +48,7 @@ def verify_username_password(file_path: str, username: str, password: str) -> bo
     passwords = load_json_file(file_path)
     return passwords.get(username, None) == password
 
-def process_client_messages(local_config: dict, broker: socket.socket,skey1:Fernet, skey3: Fernet) -> None:
+def process_client_messages(local_config: dict, broker: socket.socket, skey1:Fernet, skey3: Fernet) -> None:
     
     # Requesting to get product list from merchantA
     msg = jsonify("getProductList", {"merchantId": "merchantA"})
@@ -147,7 +147,7 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     #MERCHANT- BROKER SESSION KEY        
     val= broker.recv(1024)
 
-    session_key2,B=generate_server_DH(val,broker_pub_key,merchant_private_key)#B & k 
+    session_key2,B=generate_server_DH(val,broker_pub_key,merchant_private_key)
     
     # #1 more msg to client B 
     broker.send(encrypt(B.encode(),broker_pub_key))
@@ -197,7 +197,7 @@ def handle_msg_merchant(operation: str, data: object, skey3: Fernet) -> bytes:
 
 
 
-def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket, skey2: bytes) -> None: 
+def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket, skey2: Fernet) -> None:
     print(f"\nAccepted CLIENT connection from {client_addr}")
 
     # auth handling

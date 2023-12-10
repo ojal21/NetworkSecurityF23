@@ -3,7 +3,7 @@ from json_util import *
 import rsa
 
 file_path = "broker/passwords.json"
-key_path="client/keys"
+key_path = "client/keys"
 
 password_list = load_json_file(file_path)
 username = input("Enter username: ")
@@ -22,10 +22,10 @@ print("------ADDED BELOW ENTRY-------")
 print("USERNAME:", username)
 print("HASH: ", pwd_hash)
 
-public_key_c1, private_key_c1=rsa.newkeys(1024)
+public_key_c1, private_key_c1 = rsa.newkeys(2048)
 
-with open(f"{key_path}/{username}-public","wb") as f:
+with open(f"{key_path}/{username}-public", "wb") as f:
     f.write(public_key_c1.save_pkcs1("PEM"))
 
-with open(f"{key_path}/{username}-private","wb") as f:
+with open(f"{key_path}/{username}-private", "wb") as f:
     f.write(private_key_c1.save_pkcs1("PEM"))
