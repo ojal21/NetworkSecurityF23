@@ -4,6 +4,7 @@ from crypto_custom import *
 from file_utils import *
 from json_util import *
 import run_util
+import uuid
 
 def send_user_auth(config: dict, broker: socket.socket) -> bool:
     username = input('Enter username: ')
@@ -73,23 +74,43 @@ def process_client_messages(local_config: dict, broker: socket.socket) -> None:
     print('Please wait------------')
 
     # checkout selected product
-    msg = jsonify("checkoutProduct", {"product": selected_product, "quantity": 1})
+    customer_account_number = input('\nEnter account number:')
+    msg = jsonify("checkoutProduct", {"product": selected_product, "quantity": 1, "accountNumber": customer_account_number })
+    
     print('===>Sending product checkout', msg)
     broker.send(msg)
-
+    
     # Receive purchase info for product checked out
     op, checkout_info = decode_message(broker.recv(1024))
     assert op == "checkoutProduct"   # expected message?
     print("<===Received checkout_info:", checkout_info)
 
-    '''
-    checkout_info will contain:
-    1. Unique Txn ID?
-    2. Product Info?   (required again?)
-    3. Purchase amount for product
-    x. do we need to double check selected product? usually client generates a txn ID so that itself verifies the product
-    '''
+    
+    msg = jsonify("transId", { "transaction_Id": current_transaction_id })
+    print('===>Sending t_id', msg)
+    broker.send(msg)
+   
+    # Receive tid info for product checked out
+    op, rec_t_id = decode_message(broker.recv(1024))
+    assert op == "transId"  
+   
+    print("<===Received t_id:", rec_t_id)
+    
+    # Simulated payment amount for the selected product
+    payment_amount = 100 
 
+    # Simulate payment process
+    broker_instance = Broker() 
+    # Process payment
+    payment_processed = broker_instance.process_payment(customer_account_number, payment_amount)
+
+    if payment_processed:
+        print("Payment successful!")
+        # Proceed with other actions after successful payment, if needed
+    else:
+        print("Payment failed due to insufficient balance or invalid account number.")
+        # Handle the failure scenario
+    
     while True:
         # input message and send it to the server
         msg = input("Enter message: ")
@@ -154,7 +175,27 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     broker.close()
     print(f"Connection to BROKER {broker_addr} closed")
 
+current_transaction_id = None
+def generate_transaction_id():          # Generate a unique transaction ID using UUID4
+    ts_id = uuid.uuid4()
+    return str(ts_id)          # Convert UUID to string if needed
+
+def create_transaction_id_file():
+    global current_transaction_id
+    t_id = generate_transaction_id()
+    file_name = f"{t_id}.txt"
+    file_path = os.path.join('merchant/transactions', file_name)
+    with open(file_path, 'w') as file:
+        # Write something into the file if needed
+        file.write(f"Transaction ID: {t_id}\n")
+    current_transaction_id = t_id
+    return t_id 
+
+
+
 def handle_msg_merchant(operation: str, data: object) -> bytes:
+    global current_transaction_id
+    create_transaction_id_file()
     print('====>Received request for operation:', operation)
     response = None
     match operation:
@@ -167,12 +208,24 @@ def handle_msg_merchant(operation: str, data: object) -> bytes:
             product = data["product"]
             path = "merchant/products/" + product
             response = getFileContents(path)
+        case "transId":
+            if current_transaction_id is not None:
+                path = f"merchant/transactions/{current_transaction_id}.txt"
+                response = getFilename(path)
+            else:
+                response = "No transaction ID available"           
     if not response:
         print('WARNING: Sending empty response')
     print('<====Sending response for operation:', operation)
+    
     return response
 
+def getFilename(path):
+    path_components = path.split('/')
+    file_name_and_extension = path_components[-1].rsplit('.', 1)
+    return file_name_and_extension[0]
 
+ 
 
 def handle_broker_server(local_config: dict, client:socket.socket, client_addr:tuple, merchant:socket.socket) -> None:
     print(f"\nAccepted CLIENT connection from {client_addr}")
@@ -223,15 +276,29 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     op1, checkoutReq = decode_message(client.recv(1024))
     # TODO how to know which merchant it wants to connect to?
     print('===>Contacting:', merchantId)
-
+    
     # get from merchant
     merchant.send(jsonify(op1, checkoutReq))
     op2, checkoutResp = decode_message(merchant.recv(1024))
     assert op2 == op1
 
-    # send list to client
+    # send list to client   
     print('<===Sending checkout response to client')
     client.send(jsonify(op1, checkoutResp))
+
+   # TransactionId
+    op1, transactionIdReq = decode_message(client.recv(1024))
+    # TODO how to know which merchant it wants to connect to?
+    print('===>Contacting:', merchantId)
+    
+    # get from merchant
+    merchant.send(jsonify(op1, transactionIdReq))
+    op2, transId = decode_message(merchant.recv(1024))
+    assert op2 == op1
+
+    # send list to client   
+    print('<===Sending transactionId to client')
+    client.send(jsonify(op1, transId))
 
     while True:
         request_bytes = client.recv(1024)    # TODO: Max length????
@@ -287,6 +354,74 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> None:
     else:
         print('AUTH FAILED')
 
+class Broker:
+    def __init__(self):
+        # Broker's and Merchant's shares in the transaction (in percentages)
+        self.broker_share_percentage = 20  
+        self.merchant_share_percentage = 80  
+
+        # Define file names for broker and merchant accounts
+        self.broker_file_name = '000.txt'
+        self.merchant_file_name = '333.txt'
+
+        # Define base path for file locations
+        self.base_path = 'broker/accounts/'
+      
+        # File locations for broker and merchant accounts
+        self.broker_file_location = self.base_path + self.broker_file_name
+        self.merchant_file_location = self.base_path + self.merchant_file_name
+
+    def validate_account_and_balance(self, account_number, total_amount):
+        # Check if account file exists and has sufficient balance
+        filename = f"{self.base_path}{account_number}.txt"
+        try:
+            with open(filename, 'r') as file:
+                balance = float(file.read().strip())
+                if balance >= total_amount:
+                    return True
+                else:
+                    return False
+        except FileNotFoundError:
+            return False
+
+    def update_balance_in_file(self, filename, new_balance):
+        with open(filename, 'w') as file:
+            file.write(str(new_balance))
+
+    def process_payment(self, account_number, total_amount):
+        filename = f"{self.base_path}{account_number}.txt"
+        if self.validate_account_and_balance(account_number, total_amount):
+            try:
+                # Subtract total amount from customer's account
+                with open(filename, 'r+') as file:
+                    balance = float(file.read().strip())
+                    file.seek(0)
+                    file.truncate()
+                    file.write(str(balance - total_amount))
+
+                # Calculate shares for broker and merchant
+                broker_share = (self.broker_share_percentage / 100) * total_amount
+                merchant_share = (self.merchant_share_percentage / 100) * total_amount
+
+                # Update broker's balance
+                with open(self.broker_file_location, 'r+') as broker_file:
+                    broker_balance = float(broker_file.read().strip())
+                    broker_file.seek(0)
+                    broker_file.truncate()
+                    broker_file.write(str(broker_balance + broker_share))
+
+                # Update merchant's balance
+                with open(self.merchant_file_location, 'r+') as merchant_file:
+                    merchant_balance = float(merchant_file.read().strip())
+                    merchant_file.seek(0)
+                    merchant_file.truncate()
+                    merchant_file.write(str(merchant_balance + merchant_share))
+
+                return True  # Payment processed successfully
+            except FileNotFoundError:
+                return False  # File not found or unable to update balances
+        else:
+            return False  # Insufficient balance or invalid account number
 
 
 if __name__ == '__main__':
