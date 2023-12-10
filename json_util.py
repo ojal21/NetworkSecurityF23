@@ -1,4 +1,5 @@
 import json
+import base64
 
 
 def decode_message(input: bytes) -> tuple[str, str]:
@@ -7,11 +8,21 @@ def decode_message(input: bytes) -> tuple[str, str]:
     return msg["operation"], msg["data"]
 
 
+def session_decode_object(input: str, skey) -> object:
+    return json.loads(skey.decrypt(base64.b64decode(input)))
+
+
 def jsonify(operation: str, data: object) -> bytes:
     json_obj = {}
     json_obj["operation"] = operation
     json_obj["data"] = data
     return json.dumps(json_obj, separators=(",", ":")).encode()
+
+
+def session_encode_object(data: object, skey) -> str:
+    return base64.b64encode(
+        skey.encrypt(json.dumps(data, separators=(",", ":")).encode())
+    ).decode()
 
 
 def print_json(json_obj: dict | list) -> None:
@@ -50,3 +61,15 @@ if __name__ == "__main__":
 
     print("====TEST 4====")
     print_json(load_json_file("broker/passwords.json"))
+
+    some_bytes = session_encode_object(
+        [
+            "file1",
+            "file2",
+            "file3",
+            "file4",
+            "file5",
+        ]
+    )
+    print("jsonify_object:", some_bytes)
+    print("decode_object", session_decode_object(some_bytes))

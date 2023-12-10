@@ -1,6 +1,7 @@
 import random
 from math import gcd
 import socket
+from cryptography.fernet import Fernet
 from crypto_custom import *
 
 #secure prime
@@ -19,9 +20,10 @@ def isPrime(num):
         return True
 
 def generate_prime():
-    num=random.randint(1,2048)
+    # TODO increase
+    num=random.randint(1,100)
     while isPrime(num)!=True and num not in visited:
-        num=random.randint(1,2048)
+        num=random.randint(1,100)
     visited.append(num)
     # print(visited)
     return num
@@ -58,17 +60,16 @@ def generate_client_DH(server:socket.socket,rsa_pubk, rsa_priv_k): #hold them as
     
     server.send(encrypt(msg.encode(),rsa_pubk))
     
-    # if rsa_priv_k==None:
-    #     B=server.recv(1024).decode()    
-    #     print("case3333----",B)
-    # else:
-    B=decrypt(server.recv(1024),rsa_priv_k).decode()
-    # B=decrypt(server.recv(1024),rsa_priv_k)
+    if rsa_priv_k==None:
+        B=server.recv(1024).decode()
+        print("case3333----",B)
+    else:
+        B=decrypt(server.recv(1024),rsa_priv_k).decode()
     print("--B---",B)
     # # # sessionk="{0:016b}".format((pow(int(B),x)%p))
-    sessionk=hash((pow(int(B),x)%p).to_bytes(32,'big'))
+    session_key=hash((pow(int(B),x)%p).to_bytes(32,'big'), False)
     # # print("client session_gen_client---",sessionk)
-    return sessionk
+    return Fernet(base64.urlsafe_b64encode(session_key))
 
 def generate_server_DH(val,rsa_pubk,rsa_privk):
     #g, p, A decrypt
@@ -78,13 +79,12 @@ def generate_server_DH(val,rsa_pubk,rsa_privk):
     
         
     y=random.randint(1, 1024)
-    sessionk=hash((pow(int(A),y)%int(p)).to_bytes(32,'big'))
+    session_key=hash((pow(int(A),y)%int(p)).to_bytes(32,'big'), False)
     
     B=(pow(int(g),y)%int(p))
     # ="{0:016b}".format(sessionk)
     
-    response=(str(sessionk)+" "+str(B))
-    return response
+    return Fernet(base64.urlsafe_b64encode(session_key)), str(B)
    
 #convert session k into hexadecimal 
     
