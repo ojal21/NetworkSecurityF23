@@ -1,5 +1,6 @@
 import json
 import base64
+from crypto_custom import aes_encrypt, aes_decrypt
 
 
 def decode_message(input: bytes) -> tuple[str, str, str]:
@@ -8,8 +9,8 @@ def decode_message(input: bytes) -> tuple[str, str, str]:
     return msg["operation"], msg["data"], msg["ref"]
 
 
-def session_decode_object(input: str, skey) -> object:
-    return json.loads(skey.decrypt(base64.b64decode(input)))
+def session_decode_object(input: str, skey: bytes) -> object:
+    return json.loads(aes_decrypt(skey, base64.b64decode(input)))
 
 
 def jsonify(operation: str, data: object = "", ref: str = "") -> bytes:
@@ -22,7 +23,7 @@ def jsonify(operation: str, data: object = "", ref: str = "") -> bytes:
 
 def session_encode_object(data: object, skey) -> str:
     return base64.b64encode(
-        skey.encrypt(json.dumps(data, separators=(",", ":")).encode())
+        aes_encrypt(skey, json.dumps(data, separators=(",", ":")).encode())
     ).decode()
 
 

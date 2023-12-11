@@ -20,4 +20,6 @@ passwords_file = broker/passwords.json
 [merchant]
 ip_addr = 127.0.0.1
 port = 50700
+padding = 700
+amount = 200
 
