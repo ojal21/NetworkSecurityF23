@@ -4,22 +4,30 @@ ip_addr = 127.0.0.1
 [client]
 ip_addr = 127.0.0.1
 port = 50500
+prvkey = client/keys/{user}-private
 broker.ip = 127.0.0.1
 broker.port = 50600
+broker.pubkey = client/keys/broker-public
+merchant.pubkey = client/keys/merchant-public
 
 [broker]
 ip_addr = 127.0.0.1
 port = 50600
 account = 9999
 share = 10
+passwords_file = broker/passwords.json
+prvkey = broker/keys/broker-private
 merchant.ip = 127.0.0.1
 merchant.port = 50700
 merchant.account = 8888
-passwords_file = broker/passwords.json
+merchant.pubkey = broker/keys/merchant-public
+client.pubkey = broker/keys/{user}-public
 
 [merchant]
 ip_addr = 127.0.0.1
 port = 50700
 padding = 700
 amount = 200
+prvkey = merchant/keys/merchant-private
+broker.pubkey = merchant/keys/broker-public
 
