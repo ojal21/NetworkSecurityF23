@@ -64,12 +64,12 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1: by
 
     # Requesting to get product list from merchantA
     msg = jsonify("getProductList", {"merchantId": "merchantA"})
-    print('===>Requesting products from merchantA', msg)
+    print('===>Requesting products from merchant')
     broker.send(aes_encrypt(skey1, msg))
     # Receive product list
     op, products, _ = decode_message(aes_decrypt(skey1, broker.recv(MSG_SIZE)))
     assert op == "getProductList"
-    print("<===Received products:")     #, products)
+    print("<===Received product list")     #, products)
 
     # decrypt merchant encryption skey3
     products = session_decode_object(products, skey3)

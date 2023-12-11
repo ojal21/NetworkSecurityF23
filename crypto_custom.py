@@ -67,7 +67,6 @@ def aes_decrypt(key: tuple[bytes, bytes], data: bytes):
 #secure prime
 visited=[]
 
-
 def isPrime(num):
     if num<1:
         return False
@@ -80,19 +79,13 @@ def isPrime(num):
         return True
 
 def generate_prime():
-    # TODO increase
-    num=random.randint(1,100)
+    # actual: increased value
+    num=random.randint(1,1000)
     while isPrime(num)!=True and num not in visited:
-        num=random.randint(1,100)
+        num=random.randint(1,1000)
     visited.append(num)
     # print(visited)
     return num
-
-def generate_privitive_root(num):
-    result=1
-    for i in range(2, num):
-        if (gcd(i, num) == 1):
-            print(i)
 
 def primRoots(modulo):
     roots = []
