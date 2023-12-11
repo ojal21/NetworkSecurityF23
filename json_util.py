@@ -2,20 +2,21 @@ import json
 import base64
 
 
-def decode_message(input: bytes) -> tuple[str, str]:
+def decode_message(input: bytes) -> tuple[str, str, str]:
     json_msg = input.decode()
     msg = json.loads(json_msg)
-    return msg["operation"], msg["data"]
+    return msg["operation"], msg["data"], msg["ref"]
 
 
 def session_decode_object(input: str, skey) -> object:
     return json.loads(skey.decrypt(base64.b64decode(input)))
 
 
-def jsonify(operation: str, data: object) -> bytes:
+def jsonify(operation: str, data: object = "", ref: str = "") -> bytes:
     json_obj = {}
     json_obj["operation"] = operation
     json_obj["data"] = data
+    json_obj["ref"] = ref
     return json.dumps(json_obj, separators=(",", ":")).encode()
 
 

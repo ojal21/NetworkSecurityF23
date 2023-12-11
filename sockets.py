@@ -3,7 +3,6 @@ from threading import Thread, Lock
 from crypto_custom import *
 from file_utils import *
 from json_util import *
-from session_key_generation import *
 import run_util
 import uuid
 
@@ -51,14 +50,14 @@ def verify_username_password(file_path: str, username: str, password: str) -> bo
     passwords = load_json_file(file_path)
     return passwords.get(username, None) == password
 
-def process_client_messages(local_config: dict, broker: socket.socket, skey1:Fernet, skey3: Fernet) -> None:
+def process_client_messages(local_config: dict, broker: socket.socket, skey1: Fernet, skey3: Fernet) -> None:
     
     # Requesting to get product list from merchantA
     msg = jsonify("getProductList", {"merchantId": "merchantA"})
     print('===>Requesting products from merchantA', msg)
     broker.send(skey1.encrypt(msg))
     # Receive product list
-    op, products = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
+    op, products, _ = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
     assert op == "getProductList"   # expected message?
     print("<===Received products:", products)
 
@@ -86,7 +85,7 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1:Fer
     broker.send(skey1.encrypt(msg))
 
     # Receive purchase info for product checked out
-    op, checkout_info_encrypted = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
+    op, checkout_info_encrypted, _ = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
     assert op == "checkoutProduct"
 
     # decrypt merchant encryption skey3
@@ -112,7 +111,7 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1:Fer
     broker.send(skey1.encrypt(msg))
 
     # Receive purchase info for product checked out
-    op, payment_response = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
+    op, payment_response, _ = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
     assert op == "processPayment"
 
     # response can be 'Success' or 'Failed'
@@ -139,7 +138,7 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1:Fer
     broker.send(skey1.encrypt(msg))
 
     # Receive product
-    op, delivery_response = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
+    op, delivery_response, _ = decode_message(skey1.decrypt(broker.recv(MSG_SIZE)))
     product = session_decode_object(delivery_response, skey3)
 
     print('======Received product======')
@@ -158,6 +157,7 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     # AUTH
     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
     merchant_private_key = load_key_from_file('merchant/keys/merchant-private', True)
+
     random_value = get_nonce()
     auth_bytes = broker.recv(MSG_SIZE)
     auth_msg = decrypt(auth_bytes, merchant_private_key)
@@ -179,23 +179,16 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     else:
         print(f'AUTH FAILED for broker: {broker_addr}')
         broker.send(b'NO')
+        # TODO close this
 
-    #MERCHANT- BROKER SESSION KEY        
-    val= broker.recv(MSG_SIZE)
 
-    session_key2,B=generate_server_DH(val,broker_pub_key,merchant_private_key)
+    # MERCHANT- BROKER SESSION KEY
+    val=decrypt(broker.recv(MSG_SIZE), merchant_private_key).decode()
+    session_key2,B=generate_server_DH(val)
     
     # #1 more msg to client B 
     broker.send(encrypt(B.encode(),broker_pub_key))
     print("sessionkkk---2---- server----",session_key2)
-    
-    #MERCHANT - CLIENT
-    # print("merchant key recv--1--",broker.recv(MSG_SIZE).decode())
-    vals=broker.recv(MSG_SIZE)
-
-    session_key3,Bm=generate_server_DH(vals,None,merchant_private_key)
-    print("k--3--- server----",session_key3)
-    broker.send(Bm.encode())
 
     while True:
         request_bytes = broker.recv(MSG_SIZE)
@@ -204,8 +197,8 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
         request = session_key2.decrypt(request_bytes)
 
         print('------------------', request)
-        op, data = decode_message(request)
-        response = handle_msg_merchant(op, data, session_key3)
+        op, data, ref = decode_message(request)
+        response = handle_msg_merchant(op, data, ref, merchant_private_key)
 
         broker.send(session_key2.encrypt(jsonify(op, response)))
 
@@ -213,16 +206,29 @@ def handle_merchant_server(local_config: dict, broker:socket.socket, broker_addr
     broker.close()
     print(f"Connection to BROKER {broker_addr} closed")
 
-def handle_msg_merchant(operation: str, data: object, skey3: Fernet) -> bytes:
+merchant_sessions = {"ref": "session-key"}
+
+def handle_msg_merchant(operation: str, data: object, ref:str, merchant_private_key) -> bytes:
     print('====>Received request for operation:', operation)
     response = None
     match operation:
+        case "getUserSession":
+            # MERCHANT - CLIENT SESSION KEY
+            # ref = data["ref"]
+            # enc_data = data["client"]
+            val=decrypt(base64.b64decode(data), merchant_private_key).decode()
+            session_key3, response = generate_server_DH(val)
+            # store ref - session key mapping
+            merchant_sessions[ref] = session_key3
         case "getProductList":
+            # data contains ref
+            skey3 = merchant_sessions[ref]
             path = "merchant/products"
             products = get_files_in_directory(path)
             print('Current product list:', products)
             response = session_encode_object(products, skey3)
         case "checkoutProduct":
+            skey3 = merchant_sessions[ref]
             data = session_decode_object(data, skey3)
             product = data["product"]
             # TODO verify if payment exists?
@@ -237,6 +243,7 @@ def handle_msg_merchant(operation: str, data: object, skey3: Fernet) -> bytes:
             update_order_status(order_id, status)
             response = "OK"
         case "processDelivery":
+            skey3 = merchant_sessions[ref]
             data = session_decode_object(data, skey3)
             product_data = get_product_data_by_order(data)
             # TODO padding for content
@@ -311,27 +318,29 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
         return  #end processing this thread
 
     #CLIENT- BROKER SESSION KEY        
-    val=client.recv(MSG_SIZE)
-    print("vallll",val)
-    session_key1,B=generate_server_DH(val,cust_pub_key,broker_prv_key)
-    
-    # #1 more msg to client B 
+    val=decrypt(client.recv(MSG_SIZE), broker_prv_key).decode()
+    session_key1,B=generate_server_DH(val)
     client.send(encrypt(B.encode(),cust_pub_key))
     
     print("sessionkkk--1-- server----",session_key1)
     
     #CLIENT - MERCHANT SESSION KEY => RELAY
-    merchant.send(client.recv(MSG_SIZE))
-    client.send(merchant.recv(MSG_SIZE))
+    # session ref to hide client's identity - valid only for this session
+    ref = str(uuid.uuid4())
+    op1, relay, _ = decode_message(client.recv(MSG_SIZE))
+    merchant_id = relay["broker"]        # message part meant for broker
+    merchant_msg = relay["merchant"]    # encrypted part for merchant
+    merchant.send(skey2.encrypt(jsonify(op1, merchant_msg, ref)))
+    client.send(skey2.decrypt(merchant.recv(MSG_SIZE)))
 
-    op1, product_list_req = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
+    op1, product_list_req, _ = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
     # identify merchant:
-    merchantId = product_list_req["merchantId"]
-    print('===>Contacting:', merchantId)
+    merchant_id = product_list_req["merchantId"]
+    print('===>Contacting:', merchant_id)
 
-    # get from merchant
-    merchant.send(skey2.encrypt(jsonify("getProductList", "")))
-    op2, product_list = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
+    # get product list from merchant
+    merchant.send(skey2.encrypt(jsonify("getProductList", ref=ref)))
+    op2, product_list, _ = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
     assert op2 == "getProductList"
 
     # send list to client
@@ -339,13 +348,13 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     client.send(session_key1.encrypt(jsonify(op1, product_list)))
 
     # productCheckout
-    op1, checkout_req = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
+    op1, checkout_req, _ = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
     # TODO how to know which merchant it wants to connect to?
-    print('===>Contacting:', merchantId)
+    print('===>productCheckout')
 
     # get ORDER INFO from merchant
-    merchant.send(skey2.encrypt(jsonify(op1, checkout_req)))
-    op2, checkout_resp = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
+    merchant.send(skey2.encrypt(jsonify(op1, checkout_req, ref)))
+    op2, checkout_resp, _ = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
     orderInfo = checkout_resp["broker"]
     save_order(orderInfo)
     client_msg = checkout_resp["client"]
@@ -356,7 +365,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     client.send(session_key1.encrypt(jsonify(op1, client_msg)))
 
     # processPayment
-    op1, payment_req = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
+    op1, payment_req, _ = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
     success = process_payment(local_config, payment_req, orderInfo)
 
     if not success:
@@ -370,8 +379,8 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     # success case
     orderInfo['status'] = "PAYMENT_SUCCESS"
     # TODO update orderinfo file
-    merchant.send(skey2.encrypt(jsonify(op1, orderInfo)))
-    op2, merchant_resp = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
+    merchant.send(skey2.encrypt(jsonify(op1, orderInfo, ref)))
+    op2, merchant_resp, _ = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
     assert op1 == op2
 
     if merchant_resp == 'OK':
@@ -380,9 +389,9 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     client.send(session_key1.encrypt(jsonify(op1, 'Success')))
 
     # processDelivery
-    op1, delivery_req = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
-    merchant.send(skey2.encrypt(jsonify(op1, delivery_req)))
-    op2, delivery_resp = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
+    op1, delivery_req, _ = decode_message(session_key1.decrypt(client.recv(MSG_SIZE)))
+    merchant.send(skey2.encrypt(jsonify(op1, delivery_req, ref)))
+    op2, delivery_resp, _ = decode_message(skey2.decrypt(merchant.recv(MSG_SIZE)))
     client.send(session_key1.encrypt(jsonify(op1, delivery_resp)))
 
     # close connection socket with the client
@@ -454,7 +463,10 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> None:
 
     if auth_reply == b'OK':
         print('AUTH SUCCESS')
-        return generate_client_DH(merchant,merch_pub_key,broker_prv_key)
+        p, g, x, A, msg = generate_DH_params()
+        merchant.send(encrypt(msg.encode(), merch_pub_key))
+        B = decrypt(merchant.recv(MSG_SIZE), broker_prv_key).decode()
+        return generate_client_DH(p, g, x, A, B)
     else:
         print('AUTH FAILED')
         return None
@@ -507,7 +519,6 @@ if __name__ == '__main__':
                 '''
                 ===================CLIENT==================
                 '''
-                print(mode, 'IP:', ip_addr, 'Port:', port, '\n')
 
                 # read config to get broker address
                 local_config = config['client']
@@ -523,19 +534,27 @@ if __name__ == '__main__':
                 password = input('Enter password: ')
                 success = send_user_auth(local_config, broker_socket,username,password)
                 if success:
-                    #dh
                     broker_pub_key = load_key_from_file('broker/keys/broker-public', False)
                     cust_prv_key = load_key_from_file(f'client/keys/{username}-private', True)
                     merch_pub_key = load_key_from_file('merchant/keys/merchant-public', False)     
                     
-                    sk_broker=generate_client_DH(broker_socket,broker_pub_key,cust_prv_key)#return as session - client end
-                    sk_merchant = None
-                    if sk_broker:
-                        sk_merchant=generate_client_DH(broker_socket,merch_pub_key,None)
+                    # DH session key 1 (Client-Broker)
+                    p, g, x, A, msg = generate_DH_params()
+                    broker_socket.send(encrypt(msg.encode(), broker_pub_key))
+                    B = decrypt(broker_socket.recv(MSG_SIZE), cust_prv_key).decode()
+                    sk_broker = generate_client_DH(p, g, x, A, B)
+
+                    # DH session key 3 (Client-Merchant)
+                    p, g, x, A, msg = generate_DH_params()
+                    msg_enc = base64.b64encode(encrypt(msg.encode(), merch_pub_key)).decode()
+                    msg_dh3 = jsonify("getUserSession", {"broker": "merchantA", "merchant": msg_enc})
+                    broker_socket.send(msg_dh3)
+                    _, B, _ = decode_message(broker_socket.recv(MSG_SIZE))
+                    sk_merchant = generate_client_DH(p, g, x, A, B)
                     # TODO: what if key1 and key3 are not proper? Exception?
 
                     #pass key to process
-                    process_client_messages(local_config, broker_socket,sk_broker, sk_merchant)
+                    process_client_messages(local_config, broker_socket, sk_broker, sk_merchant)
                 else:
                     print("ERROR: Incorrect username or password")
 
