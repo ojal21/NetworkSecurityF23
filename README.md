@@ -3,6 +3,11 @@
 ### BUILD:  
 Built with python version: `Python 3.10.12`  
 Install additional dependencies with `pip3 -r requirements.txt`  
+
+### User configuration:  
+- Please use `python3 add-client.py` to save the username and password in broker's list.  
+- Please create folder with the username under `client/purchased/` folder   
+- Please create the RSA key pair and add to `client/keys` and `broker/keys` folders appropriately.  
   
 ### RUN AS BROKER:  
 `make broker` OR `python3 sockets.py --mode broker`  
