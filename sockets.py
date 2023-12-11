@@ -1,7 +1,7 @@
 import socket
 from threading import Thread, Lock
 from crypto_custom import *
-from file_utils import *
+from file_util import *
 from json_util import *
 import run_util
 import uuid
@@ -123,7 +123,7 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1: by
     # response can be 'Success' or 'Failed'
     if payment_response == 'Failed':
         print('PAYMENT FAILED')
-        print('Please check your account for sufficient balance')
+        print('Please check your account credentials and/or balance')
 
         broker.close()
         print("Connection to broker closed")
@@ -148,9 +148,15 @@ def process_client_messages(local_config: dict, broker: socket.socket, skey1: by
     product = base64.b64decode(session_decode_object(delivery_response, skey3))
 
     print('======Received product======')
-    path = f'client/{username}/{order["orderId"]}_{order["product"]}'
-    save_text_file(path, product)
-    print('File has been saved to path:', path)
+    success = verify_file_hash(product)
+    print('File integrity verification:', success)
+
+    if success:
+        path = f'client/{username}/{order["orderId"]}_{order["product"]}'
+        save_text_file(path, product)
+        print('Product has been saved to path:', path)
+    else:
+        print('Product is corrupted')
 
     # close client socket (connection to the server)
     broker.close()
@@ -194,6 +200,7 @@ def handle_merchant_server(config: dict, broker:socket.socket, broker_addr:tuple
     # #1 more msg to client B
     broker.send(rsa_encrypt(B.encode(),broker_pub_key))
     print("sessionkkk---2---- server----",skey2)
+    B = None
 
     while True:
         request_bytes = broker.recv(MSG_SIZE)
@@ -263,10 +270,12 @@ def get_product_data_by_order(order_id: str, padding: int) -> bytes:
     order_path = 'merchant/orders/' + order_id
     order = load_json_file(order_path)
     product = get_file_contents('merchant/products/' + order['product'], padding)
+    product_hash = hash_file_content(product)
+    print(product_hash)
     # update order as delivered
     order['status'] = "DELIVERED"
     write_json_file(order, order_path)
-    return product
+    return product + product_hash
 
 # CREATE ORDER AT MERCHANT
 def create_order(product: str, amount: int):
@@ -324,6 +333,7 @@ def handle_broker_server(local_config: dict, client:socket.socket, client_addr:t
     client.send(rsa_encrypt(B.encode(),cust_pub_key))
 
     print("sessionkkk--1-- server----",skey1)
+    B = None
 
     #CLIENT - MERCHANT SESSION KEY => RELAY
     # session ref to hide client's identity - valid only for this session
@@ -420,6 +430,12 @@ def process_payment(config: dict, request: dict, order: dict) -> bool:
                 print('Insufficient Balance')
                 return False
 
+            # verify name
+            name = request['accountHolderName']
+            if client_acc['accountHolderName'] != name:
+                print('Invalid credentials')
+                return False
+
             # success processing
             # update account balances
             broker_share = int(config['share'])/100
@@ -456,7 +472,7 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> bytes | None
     print('id:', id)
     challenge_recv = auth_resp[9:32+9]
     if(random_value == challenge_recv):
-        print('Received correct challege back')
+        print('Received correct challenge back')
     else:
         print('incorrect challenge', 'expected:', random_value, 'received:', challenge_recv)
     challenge = auth_resp[32+9:]
@@ -466,10 +482,10 @@ def authenticate_merchant(config: dict, merchant: socket.socket) -> bytes | None
 
     if auth_reply == b'OK':
         print('AUTH SUCCESS')
-        p, g, x, A, msg = generate_DH_params()
+        p, g, x1, x2, A1, A2, msg = generate_DH_params()
         merchant.send(rsa_encrypt(msg.encode(), merch_pub_key))
-        B = rsa_decrypt(merchant.recv(MSG_SIZE), broker_prv_key).decode()
-        return generate_client_DH(p, g, x, A, B)
+        B1, B2 = rsa_decrypt(merchant.recv(MSG_SIZE), broker_prv_key).decode().split()
+        return generate_client_DH(p, g, x1, x2, A1, A2, B1, B2)
     else:
         print('AUTH FAILED')
         return None
@@ -543,18 +559,22 @@ if __name__ == '__main__':
                     merch_pub_key = load_key_from_file('merchant/keys/merchant-public', False)
 
                     # DH session key 1 (Client-Broker)
-                    p, g, x, A, msg = generate_DH_params()
+                    p, g, x1, x2, A1, A2, msg = generate_DH_params()
                     broker_socket.send(rsa_encrypt(msg.encode(), broker_pub_key))
-                    B = rsa_decrypt(broker_socket.recv(MSG_SIZE), cust_prv_key).decode()
-                    sk_broker = generate_client_DH(p, g, x, A, B)
+                    B1, B2 = rsa_decrypt(broker_socket.recv(MSG_SIZE), cust_prv_key).decode().split()
+                    sk_broker = generate_client_DH(p, g, x1, x2, A1, A2, B1, B2)
 
                     # DH session key 3 (Client-Merchant)
-                    p, g, x, A, msg = generate_DH_params()
+                    p, g, x1, x2, A1, A2, msg = generate_DH_params()
                     msg_enc = base64.b64encode(rsa_encrypt(msg.encode(), merch_pub_key)).decode()
                     msg_dh3 = jsonify("getUserSession", {"broker": "merchantA", "merchant": msg_enc})
                     broker_socket.send(aes_encrypt(sk_broker, msg_dh3))
                     _, B, _ = decode_message(aes_decrypt(sk_broker, broker_socket.recv(MSG_SIZE)))
-                    sk_merchant = generate_client_DH(p, g, x, A, B)
+                    B1, B2 = B.split()
+                    sk_merchant = generate_client_DH(p, g, x1, x2, A1, A2, B1, B2)
+
+                    # forget them
+                    p = g = x1 = x2 = A1 = A2 = B1 = B2 = msg = None
 
                     assert sk_broker != None
                     assert sk_merchant != None
